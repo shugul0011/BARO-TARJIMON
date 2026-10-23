@@ -1,0 +1,1050 @@
+name: Build BARO TARJIMON APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Generate BARO TARJIMON Android Project
+        run: |
+          mkdir -p app/src/main/java/com/baro/translator
+          mkdir -p app/src/main/res/drawable
+
+          cat << 'EOF' > settings.gradle
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "BaroTranslator"
+          include ':app'
+          EOF
+
+          cat << 'EOF' > build.gradle
+          plugins {
+              id 'com.android.application' version '8.4.0' apply false
+              id 'org.jetbrains.kotlin.android' version '1.9.24' apply false
+          }
+          EOF
+
+          cat << 'EOF' > gradle.properties
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          EOF
+
+          cat << 'EOF' > app/build.gradle
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+          }
+
+          android {
+              namespace 'com.baro.translator'
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId "com.baro.translator"
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = '17'
+              }
+          }
+
+          dependencies {
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/res/drawable/ic_baro_translator.xml
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path
+                  android:fillColor="#0B0F19"
+                  android:pathData="M0,0h108v108h-108z"/>
+              <path
+                  android:fillColor="#1E293B"
+                  android:pathData="M54,12A42,42 0 1,1 12,54A42,42 0 0,1 54,12z"/>
+              <path
+                  android:fillColor="#10B981"
+                  android:pathData="M54,26c-6.6,0 -12,5.4 -12,12v16c0,6.6 5.4,12 12,12s12,-5.4 12,-12V38c0,-6.6 -5.4,-12 -12,-12z"/>
+              <path
+                  android:fillColor="#38BDF8"
+                  android:pathData="M74,52h-4c0,8.8 -7.2,16 -16,16s-16,-7.2 -16,-16h-4c0,10.4 7.9,18.9 18,19.9V82h-8v4h20v-4h-8V71.9c10.1,-1 18,-9.5 18,-19.9z"/>
+          </vector>
+          EOF
+
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.RECORD_AUDIO" />
+              <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@drawable/ic_baro_translator"
+                  android:label="BARO TARJIMON"
+                  android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:screenOrientation="portrait"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/baro/translator/MainActivity.kt
+          package com.baro.translator
+
+          import android.Manifest
+          import android.app.Activity
+          import android.app.AlertDialog
+          import android.content.ClipData
+          import android.content.ClipboardManager
+          import android.content.Context
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.graphics.Color
+          import android.graphics.Typeface
+          import android.graphics.drawable.GradientDrawable
+          import android.media.AudioFormat
+          import android.media.AudioManager
+          import android.media.AudioTrack
+          import android.media.MediaRecorder
+          import android.net.Uri
+          import android.os.Bundle
+          import android.speech.tts.TextToSpeech
+          import android.util.Base64
+          import android.util.TypedValue
+          import android.view.Gravity
+          import android.view.View
+          import android.widget.Button
+          import android.widget.EditText
+          import android.widget.LinearLayout
+          import android.widget.ScrollView
+          import android.widget.TextView
+          import android.widget.Toast
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import java.io.File
+          import java.net.URL
+          import java.util.Locale
+          import java.util.concurrent.Executors
+          import javax.net.ssl.HttpsURLConnection
+
+          class MainActivity : Activity() {
+
+              private val executor = Executors.newSingleThreadExecutor()
+              private var mediaRecorder: MediaRecorder? = null
+              private var audioFile: File? = null
+              private var isRecording = false
+              private var recordingDirection = "UZ_TO_SY" // or SY_TO_UZ
+              private var isBusy = false
+              private var useIdlibDialect = true
+              private var useMaleVoice = true
+              private var lastPcmBytes: ByteArray? = null
+              private var lastTranslatedText: String = ""
+              private var lastWasSyrian: Boolean = true
+              private var activeAudioTrack: AudioTrack? = null
+              private var fallbackTts: TextToSpeech? = null
+
+              private lateinit var statusBanner: TextView
+              private lateinit var dialectBtn: Button
+              private lateinit var voiceBtn: Button
+              private lateinit var originalTextView: TextView
+              private lateinit var translatedTextView: TextView
+              private lateinit var pronunciationTextView: TextView
+              private lateinit var uzRecordBtn: Button
+              private lateinit var syRecordBtn: Button
+              private lateinit var replayBtn: Button
+              private lateinit var manualInput: EditText
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  val prefs = getSharedPreferences("baro_trans_prefs", Context.MODE_PRIVATE)
+                  useIdlibDialect = prefs.getBoolean("idlib_dialect", true)
+                  useMaleVoice = prefs.getBoolean("male_voice", true)
+
+                  fallbackTts = TextToSpeech(this) { }
+                  buildUi()
+
+                  if (getApiKey().isBlank()) {
+                      showApiKeyDialog()
+                  }
+              }
+
+              private fun buildUi() {
+                  val root = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setBackgroundColor(Color.parseColor("#0B0F19"))
+                      setPadding(dp(16), dp(16), dp(16), dp(16))
+                  }
+
+                  // Header Row
+                  val header = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      gravity = Gravity.CENTER_VERTICAL
+                      layoutParams = LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT,
+                          LinearLayout.LayoutParams.WRAP_CONTENT
+                      ).apply { bottomMargin = dp(10) }
+                  }
+
+                  val title = TextView(this).apply {
+                      text = "BARO TARJIMON"
+                      setTextColor(Color.WHITE)
+                      setTextSize(TypedValue.COMPLEX_UNIT_SP, 21f)
+                      typeface = Typeface.DEFAULT_BOLD
+                      layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                  }
+
+                  val settingsBtn = Button(this).apply {
+                      text = "Kalit (API)"
+                      setTextColor(Color.parseColor("#38BDF8"))
+                      setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                      isAllCaps = false
+                      background = roundedBg("#1E293B", 10)
+                      setPadding(dp(12), dp(6), dp(12), dp(6))
+                      setOnClickListener { showApiKeyDialog() }
+                  }
+
+                  header.addView(title)
+                  header.addView(settingsBtn)
+
+                  // Options Row (Dialect + Voice Gender)
+                  val optionsRow = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      layoutParams = LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT,
+                          LinearLayout.LayoutParams.WRAP_CONTENT
+                      ).apply { bottomMargin = dp(10) }
+                  }
+
+                  dialectBtn = Button(this).apply {
+                      setTextColor(Color.parseColor("#E2E8F0"))
+                      setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                      isAllCaps = false
+                      background = roundedBg("#1E293B", 10)
+                      layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f).apply {
+                          rightMargin = dp(6)
+                      }
+                      setOnClickListener {
+                          useIdlibDialect = !useIdlibDialect
+                          getSharedPreferences("baro_trans_prefs", Context.MODE_PRIVATE)
+                              .edit().putBoolean("idlib_dialect", useIdlibDialect).apply()
+                          updateOptionButtons()
+                      }
+                  }
+
+                  voiceBtn = Button(this).apply {
+                      setTextColor(Color.parseColor("#E2E8F0"))
+                      setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                      isAllCaps = false
+                      background = roundedBg("#1E293B", 10)
+                      layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f).apply {
+                          leftMargin = dp(6)
+                      }
+                      setOnClickListener {
+                          useMaleVoice = !useMaleVoice
+                          getSharedPreferences("baro_trans_prefs", Context.MODE_PRIVATE)
+                              .edit().putBoolean("male_voice", useMaleVoice).apply()
+                          updateOptionButtons()
+                      }
+                  }
+
+                  optionsRow.addView(dialectBtn)
+                  optionsRow.addView(voiceBtn)
+
+                  // Status Banner
+                  statusBanner = TextView(this).apply {
+                      text = "Gapirish uchun pastdagi tugmani bosing"
+                      setTextColor(Color.parseColor("#10B981"))
+                      setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                      typeface = Typeface.DEFAULT_BOLD
+                      gravity = Gravity.CENTER
+                      background = roundedBg("#111827", 10)
+                      setPadding(dp(10), dp(8), dp(10), dp(8))
+                      layoutParams = LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT,
+                          LinearLayout.LayoutParams.WRAP_CONTENT
+                      ).apply { bottomMargin = dp(10) }
+                  }
+
+                  // Scrollable Display Card
+                  val scroll = ScrollView(this).apply {
+                      layoutParams = LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT,
+                          0,
+                          1f
+                      ).apply { bottomMargin = dp(10) }
+                      background = roundedBg("#111827", 14)
+                      setPadding(dp(14), dp(14), dp(14), dp(14))
+                  }
+
+                  val cardContent = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                  }
+
+                  val origLabel = TextView(this).apply {
+                      text = "ESHITILGAN NUTQ:"
+                      setTextColor(Color.parseColor("#64748B"))
+                      setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                      typeface = Typeface.DEFAULT_BOLD
+                  }
+
+                  originalTextView = TextView(this).apply {
+                      text = "—"
+                      setTextColor(Color.parseColor("#CBD5E1"))
+                      setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                      setPadding(0, dp(4), 0, dp(14))
+                      setTextIsSelectable(true)
+                  }
+
+                  val transLabel = TextView(this).apply {
+                      text = "MA'NOLI TARJIMA:"
+                      setTextColor(Color.parseColor("#10B981"))
+                      setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                      typeface = Typeface.DEFAULT_BOLD
+                  }
+
+                  translatedTextView = TextView(this).apply {
+                      text = "Tarjima shu yerda chiqadi va tabiiy ovozda o'qiladi..."
+                      setTextColor(Color.WHITE)
+                      setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+                      typeface = Typeface.DEFAULT_BOLD
+                      setPadding(0, dp(6), 0, dp(14))
+                      setTextIsSelectable(true)
+                  }
+
+                  val pronLabel = TextView(this).apply {
+                      text = "TALAFFUZI (O'QILISHI):"
+                      setTextColor(Color.parseColor("#38BDF8"))
+                      setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                      typeface = Typeface.DEFAULT_BOLD
+                  }
+
+                  pronunciationTextView = TextView(this).apply {
+                      text = "—"
+                      setTextColor(Color.parseColor("#93C5FD"))
+                      setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                      setPadding(0, dp(4), 0, dp(14))
+                      setTextIsSelectable(true)
+                  }
+
+                  val actionRow = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                  }
+
+                  replayBtn = Button(this).apply {
+                      text = "🔊 Qayta eshitish"
+                      setTextColor(Color.WHITE)
+                      setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                      isAllCaps = false
+                      background = roundedBg("#2563EB", 10)
+                      layoutParams = LinearLayout.LayoutParams(0, dp(40), 1f).apply {
+                          rightMargin = dp(6)
+                      }
+                      setOnClickListener { replayLastAudio() }
+                  }
+
+                  val copyBtn = Button(this).apply {
+                      text = "📋 Nusxa olish"
+                      setTextColor(Color.WHITE)
+                      setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                      isAllCaps = false
+                      background = roundedBg("#334155", 10)
+                      layoutParams = LinearLayout.LayoutParams(0, dp(40), 1f).apply {
+                          leftMargin = dp(6)
+                      }
+                      setOnClickListener {
+                          if (lastTranslatedText.isNotBlank()) {
+                              val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                              cm.setPrimaryClip(ClipData.newPlainText("translation", lastTranslatedText))
+                              Toast.makeText(this@MainActivity, "Nusxalandi!", Toast.LENGTH_SHORT).show()
+                          }
+                      }
+                  }
+
+                  actionRow.addView(replayBtn)
+                  actionRow.addView(copyBtn)
+
+                  cardContent.addView(origLabel)
+                  cardContent.addView(originalTextView)
+                  cardContent.addView(transLabel)
+                  cardContent.addView(translatedTextView)
+                  cardContent.addView(pronLabel)
+                  cardContent.addView(pronunciationTextView)
+                  cardContent.addView(actionRow)
+                  scroll.addView(cardContent)
+
+                  // Optional Text Input Row
+                  val inputRow = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      gravity = Gravity.CENTER_VERTICAL
+                      layoutParams = LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT,
+                          LinearLayout.LayoutParams.WRAP_CONTENT
+                      ).apply { bottomMargin = dp(10) }
+                  }
+
+                  manualInput = EditText(this).apply {
+                      hint = "Yoki matn yozib tarjima qiling..."
+                      setHintTextColor(Color.parseColor("#64748B"))
+                      setTextColor(Color.WHITE)
+                      setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                      background = roundedBg("#1E293B", 10)
+                      setPadding(dp(12), dp(10), dp(12), dp(10))
+                      layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                          rightMargin = dp(8)
+                      }
+                  }
+
+                  val sendTextBtn = Button(this).apply {
+                      text = "Tarjima"
+                      setTextColor(Color.parseColor("#0B0F19"))
+                      setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                      typeface = Typeface.DEFAULT_BOLD
+                      isAllCaps = false
+                      background = roundedBg("#38BDF8", 10)
+                      layoutParams = LinearLayout.LayoutParams(dp(85), dp(44))
+                      setOnClickListener {
+                          val txt = manualInput.text.toString().trim()
+                          if (txt.isNotEmpty() && !isBusy) {
+                              manualInput.setText("")
+                              translateTextOnly(txt)
+                          }
+                      }
+                  }
+
+                  inputRow.addView(manualInput)
+                  inputRow.addView(sendTextBtn)
+
+                  // Two Main Voice Buttons (Uzbek -> Syrian & Syrian -> Uzbek)
+                  val voiceRow = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      layoutParams = LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT,
+                          dp(68)
+                      )
+                  }
+
+                  uzRecordBtn = Button(this).apply {
+                      text = "🇺🇿 O'ZBEKCHA\nGAPIRISH (→ Suriya)"
+                      setTextColor(Color.parseColor("#0B0F19"))
+                      setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                      typeface = Typeface.DEFAULT_BOLD
+                      isAllCaps = false
+                      background = roundedBg("#10B981", 14)
+                      layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
+                          rightMargin = dp(6)
+                      }
+                      setOnClickListener { handleMicPress("UZ_TO_SY") }
+                  }
+
+                  syRecordBtn = Button(this).apply {
+                      text = "🇸🇾 SURIYACHA\nGAPIRISH (→ O'zbek)"
+                      setTextColor(Color.WHITE)
+                      setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                      typeface = Typeface.DEFAULT_BOLD
+                      isAllCaps = false
+                      background = roundedBg("#2563EB", 14)
+                      layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
+                          leftMargin = dp(6)
+                      }
+                      setOnClickListener { handleMicPress("SY_TO_UZ") }
+                  }
+
+                  voiceRow.addView(uzRecordBtn)
+                  voiceRow.addView(syRecordBtn)
+
+                  root.addView(header)
+                  root.addView(optionsRow)
+                  root.addView(statusBanner)
+                  root.addView(scroll)
+                  root.addView(inputRow)
+                  root.addView(voiceRow)
+
+                  setContentView(root)
+                  updateOptionButtons()
+              }
+
+              private fun updateOptionButtons() {
+                  dialectBtn.text = if (useIdlibDialect) {
+                      "🇸🇾 Sheva: Idlib / Halab"
+                  } else {
+                      "🇸🇾 Sheva: Damashq (Shami)"
+                  }
+                  voiceBtn.text = if (useMaleVoice) {
+                      "🗣 Ovoz: Erkak (Live)"
+                  } else {
+                      "🗣 Ovoz: Ayol (Live)"
+                  }
+              }
+
+              private fun handleMicPress(direction: String) {
+                  if (isBusy) return
+
+                  if (getApiKey().isBlank()) {
+                      showApiKeyDialog()
+                      return
+                  }
+
+                  if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                      requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 200)
+                      return
+                  }
+
+                  if (!isRecording) {
+                      startRecording(direction)
+                  } else {
+                      stopRecordingAndTranslate()
+                  }
+              }
+
+              private fun startRecording(direction: String) {
+                  try {
+                      stopCurrentAudio()
+                      recordingDirection = direction
+                      audioFile = File(cacheDir, "speech_input.m4a")
+                      mediaRecorder = MediaRecorder().apply {
+                          setAudioSource(MediaRecorder.AudioSource.MIC)
+                          setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                          setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                          setAudioSamplingRate(16000)
+                          setAudioEncodingBitRate(64000)
+                          setOutputFile(audioFile!!.absolutePath)
+                          prepare()
+                          start()
+                      }
+                      isRecording = true
+
+                      if (direction == "UZ_TO_SY") {
+                          statusBanner.text = "🔴 O'zbekcha gapiring... Tugatgach tugmani bosing"
+                          statusBanner.setTextColor(Color.parseColor("#F87171"))
+                          uzRecordBtn.text = "⏹ TO'XTATISH VA\nTARJIMA QILISH"
+                          uzRecordBtn.background = roundedBg("#EF4444", 14)
+                          uzRecordBtn.setTextColor(Color.WHITE)
+                          syRecordBtn.isEnabled = false
+                      } else {
+                          statusBanner.text = "🔴 Suriyacha gapiring... Tugatgach tugmani bosing"
+                          statusBanner.setTextColor(Color.parseColor("#F87171"))
+                          syRecordBtn.text = "⏹ TO'XTATISH VA\nTARJIMA QILISH"
+                          syRecordBtn.background = roundedBg("#EF4444", 14)
+                          uzRecordBtn.isEnabled = false
+                      }
+                  } catch (e: Exception) {
+                      isRecording = false
+                      Toast.makeText(this, "Mikrofon xatosi: ${e.message}", Toast.LENGTH_LONG).show()
+                      resetButtons()
+                  }
+              }
+
+              private fun stopRecordingAndTranslate() {
+                  try {
+                      mediaRecorder?.apply {
+                          stop()
+                          release()
+                      }
+                  } catch (_: Exception) {
+                  }
+                  mediaRecorder = null
+                  isRecording = false
+                  resetButtons()
+
+                  val file = audioFile
+                  if (file == null || !file.exists() || file.length() < 500) {
+                      statusBanner.text = "Ovoz juda qisqa bo'ldi, qaytadan gapiring"
+                      return
+                  }
+
+                  processAudioWithGemini(file, recordingDirection)
+              }
+
+              private fun resetButtons() {
+                  uzRecordBtn.isEnabled = true
+                  syRecordBtn.isEnabled = true
+                  uzRecordBtn.text = "🇺🇿 O'ZBEKCHA\nGAPIRISH (→ Suriya)"
+                  uzRecordBtn.background = roundedBg("#10B981", 14)
+                  uzRecordBtn.setTextColor(Color.parseColor("#0B0F19"))
+
+                  syRecordBtn.text = "🇸🇾 SURIYACHA\nGAPIRISH (→ O'zbek)"
+                  syRecordBtn.background = roundedBg("#2563EB", 14)
+                  syRecordBtn.setTextColor(Color.WHITE)
+              }
+
+              private fun processAudioWithGemini(file: File, direction: String) {
+                  isBusy = true
+                  statusBanner.text = "⏳ Nutq ma'nosi tahlil qilinmoqda..."
+                  statusBanner.setTextColor(Color.parseColor("#FBBF24"))
+
+                  executor.execute {
+                      try {
+                          val apiKey = getApiKey()
+                          val audioBytes = file.readBytes()
+                          val base64Audio = Base64.encodeToString(audioBytes, Base64.NO_WRAP)
+                          val dialectDesc = if (useIdlibDialect) {
+                              "Shimoliy Suriya (Idlib va Halab) jonli so'zlashuv shevasi"
+                          } else {
+                              "Suriya (Damashq / Shami) jonli so'zlashuv shevasi"
+                          }
+
+                          val systemInstruction = if (direction == "UZ_TO_SY") {
+                              """
+                              Sen professional O'zbek va Suriya arab tili ($dialectDesc) sinxron tarjimonisan.
+                              Audiodagi o'zbekcha nutqni diqqat bilan eshit. So'zma-so'z emas, balki butun gap va nutqning TO'LIQ MA'NOSINI tushunib, Suriyada ($dialectDesc) odamlar kundalik hayotda tabiiy gaplashadigan jonli Suriya tiliga tarjima qil.
+                              Faqat JSON formatida javob qaytar:
+                              {
+                                "original": "Eshitilgan o'zbekcha nutq matni",
+                                "translated": "Suriya shevasidagi tabiiy va ma'noli tarjima (arab yozuvida)",
+                                "pronunciation": "Suriya tarjimasining o'zbek harflaridagi aniq o'qilishi (talaffuzi)"
+                              }
+                              """.trimIndent()
+                          } else {
+                              """
+                              Sen professional Suriya arab tili ($dialectDesc) va O'zbek tili sinxron tarjimonisan.
+                              Audiodagi Suriya shevasida (yoki arab tilida) aytilgan nutqni diqqat bilan eshit. Uning barcha sheva iboralari va maqsadini tushunib, o'zbek tiliga juda ravon, tabiiy va tushunarli qilib ma'noli tarjima qil.
+                              Faqat JSON formatida javob qaytar:
+                              {
+                                "original": "Eshitilgan Suriya nutqining arabcha matni",
+                                "translated": "O'zbek tilidagi to'liq, ma'noli va tabiiy tarjima",
+                                "pronunciation": "Suriya nutqining o'zbek harflaridagi o'qilishi"
+                              }
+                              """.trimIndent()
+                          }
+
+                          val parts = JSONArray().apply {
+                              put(JSONObject().put("text", systemInstruction))
+                              put(
+                                  JSONObject().put(
+                                      "inline_data",
+                                      JSONObject()
+                                          .put("mime_type", "audio/mp4")
+                                          .put("data", base64Audio)
+                                  )
+                              )
+                          }
+
+                          val resultJson = callGeminiTextModel(apiKey, parts)
+                          val orig = resultJson.optString("original", "")
+                          val trans = resultJson.optString("translated", "")
+                          val pron = resultJson.optString("pronunciation", "")
+
+                          lastTranslatedText = trans
+                          lastWasSyrian = (direction == "UZ_TO_SY")
+
+                          runOnUiThread {
+                              originalTextView.text = orig.ifBlank { "—" }
+                              translatedTextView.text = trans.ifBlank { "—" }
+                              pronunciationTextView.text = pron.ifBlank { "—" }
+                              statusBanner.text = "🔊 Tabiiy ovoz tayyorlanmoqda..."
+                          }
+
+                          if (trans.isNotBlank()) {
+                              generateAndPlayNaturalVoice(apiKey, trans, lastWasSyrian)
+                          }
+
+                          runOnUiThread {
+                              isBusy = false
+                              statusBanner.text = "✅ Tayyor! Yana gapirish uchun bosing"
+                              statusBanner.setTextColor(Color.parseColor("#10B981"))
+                          }
+                      } catch (e: Exception) {
+                          runOnUiThread {
+                              isBusy = false
+                              statusBanner.text = "Xatolik yuz berdi"
+                              statusBanner.setTextColor(Color.parseColor("#EF4444"))
+                              Toast.makeText(
+                                  this@MainActivity,
+                                  "Xatolik: ${e.message}",
+                                  Toast.LENGTH_LONG
+                              ).show()
+                          }
+                      }
+                  }
+              }
+
+              private fun translateTextOnly(inputText: String) {
+                  if (getApiKey().isBlank()) {
+                      showApiKeyDialog()
+                      return
+                  }
+                  isBusy = true
+                  statusBanner.text = "⏳ Matn ma'nosi tarjima qilinmoqda..."
+                  statusBanner.setTextColor(Color.parseColor("#FBBF24"))
+
+                  executor.execute {
+                      try {
+                          val apiKey = getApiKey()
+                          val dialectDesc = if (useIdlibDialect) {
+                              "Shimoliy Suriya (Idlib va Halab) jonli so'zlashuv shevasi"
+                          } else {
+                              "Suriya (Damashq / Shami) jonli so'zlashuv shevasi"
+                          }
+
+                          val prompt = """
+                              Sen professional O'zbek va Suriya arab tili ($dialectDesc) tarjimonisan.
+                              Quyidagi matn o'zbek tilida bo'lsa, uni $dialectDesc ga ma'noli va tabiiy tarjima qil (`is_syrian_output`: true).
+                              Agar matn arab/Suriya tilida bo'lsa, uni o'zbek tiliga ma'noli va ravon tarjima qil (`is_syrian_output`: false).
+                              Matn: "$inputText"
+                              Faqat JSON formatida qaytar:
+                              {
+                                "original": "$inputText",
+                                "translated": "Ma'noli tarjima",
+                                "pronunciation": "Suriya tilidagi gapning o'zbek harflaridagi o'qilishi",
+                                "is_syrian_output": true
+                              }
+                          """.trimIndent()
+
+                          val parts = JSONArray().put(JSONObject().put("text", prompt))
+                          val resultJson = callGeminiTextModel(apiKey, parts)
+
+                          val orig = resultJson.optString("original", inputText)
+                          val trans = resultJson.optString("translated", "")
+                          val pron = resultJson.optString("pronunciation", "")
+                          val isSyrianOut = resultJson.optBoolean("is_syrian_output", true)
+
+                          lastTranslatedText = trans
+                          lastWasSyrian = isSyrianOut
+
+                          runOnUiThread {
+                              originalTextView.text = orig
+                              translatedTextView.text = trans
+                              pronunciationTextView.text = pron
+                              statusBanner.text = "🔊 Tabiiy ovozda o'qilmoqda..."
+                          }
+
+                          if (trans.isNotBlank()) {
+                              generateAndPlayNaturalVoice(apiKey, trans, isSyrianOut)
+                          }
+
+                          runOnUiThread {
+                              isBusy = false
+                              statusBanner.text = "✅ Tayyor!"
+                              statusBanner.setTextColor(Color.parseColor("#10B981"))
+                          }
+                      } catch (e: Exception) {
+                          runOnUiThread {
+                              isBusy = false
+                              statusBanner.text = "Xatolik: ${e.message}"
+                              statusBanner.setTextColor(Color.parseColor("#EF4444"))
+                          }
+                      }
+                  }
+              }
+
+              private fun callGeminiTextModel(apiKey: String, parts: JSONArray): JSONObject {
+                  val models = listOf("gemini-2.5-flash", "gemini-2.0-flash")
+                  var lastError = "Model javob bermadi"
+
+                  for (model in models) {
+                      try {
+                          val url = URL("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey")
+                          val conn = (url.openConnection() as HttpsURLConnection).apply {
+                              requestMethod = "POST"
+                              setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                              connectTimeout = 25000
+                              readTimeout = 60000
+                              doOutput = true
+                          }
+
+                          val payload = JSONObject().apply {
+                              put("contents", JSONArray().put(JSONObject().put("parts", parts)))
+                              put(
+                                  "generationConfig",
+                                  JSONObject()
+                                      .put("temperature", 0.3)
+                                      .put("responseMimeType", "application/json")
+                              )
+                          }
+
+                          conn.outputStream.use {
+                              it.write(payload.toString().toByteArray(Charsets.UTF_8))
+                          }
+
+                          val code = conn.responseCode
+                          val body = if (code in 200..299) {
+                              conn.inputStream.bufferedReader().use { it.readText() }
+                          } else {
+                              conn.errorStream?.bufferedReader()?.use { it.readText() } ?: "HTTP $code"
+                          }
+
+                          if (code in 200..299) {
+                              val root = JSONObject(body)
+                              val rawText = root.getJSONArray("candidates")
+                                  .getJSONObject(0)
+                                  .getJSONObject("content")
+                                  .getJSONArray("parts")
+                                  .getJSONObject(0)
+                                  .getString("text")
+                                  .trim()
+                                  .removePrefix("```json")
+                                  .removePrefix("```")
+                                  .removeSuffix("```")
+                                  .trim()
+                              return JSONObject(rawText)
+                          } else {
+                              lastError = body
+                          }
+                      } catch (e: Exception) {
+                          lastError = e.message ?: "Tarmoq xatosi"
+                      }
+                  }
+                  throw Exception(lastError)
+              }
+
+              private fun generateAndPlayNaturalVoice(apiKey: String, text: String, isSyrian: Boolean) {
+                  try {
+                      val voiceName = if (useMaleVoice) "Puck" else "Kore"
+                      val voicePrompt = if (isSyrian) {
+                          "Speak this text naturally in a warm, authentic Syrian Levantine Arabic dialect, like a native Syrian speaker in conversation: $text"
+                      } else {
+                          "Quyidagi o'zbekcha gapni xuddi jonli suhbatdoshdek tabiiy, ravon va samimiy ohangda o'qib ber: $text"
+                      }
+
+                      val url = URL("[https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=$apiKey](https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=$apiKey)")
+                      val conn = (url.openConnection() as HttpsURLConnection).apply {
+                          requestMethod = "POST"
+                          setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                          connectTimeout = 20000
+                          readTimeout = 45000
+                          doOutput = true
+                      }
+
+                      val payload = JSONObject().apply {
+                          put(
+                              "contents",
+                              JSONArray().put(
+                                  JSONObject().put(
+                                      "parts",
+                                      JSONArray().put(JSONObject().put("text", voicePrompt))
+                                  )
+                              )
+                          )
+                          put(
+                              "generationConfig",
+                              JSONObject()
+                                  .put("responseModalities", JSONArray().put("AUDIO"))
+                                  .put(
+                                      "speechConfig",
+                                      JSONObject().put(
+                                          "voiceConfig",
+                                          JSONObject().put(
+                                              "prebuiltVoiceConfig",
+                                              JSONObject().put("voiceName", voiceName)
+                                          )
+                                      )
+                                  )
+                          )
+                      }
+
+                      conn.outputStream.use {
+                          it.write(payload.toString().toByteArray(Charsets.UTF_8))
+                      }
+
+                      if (conn.responseCode in 200..299) {
+                          val response = conn.inputStream.bufferedReader().use { it.readText() }
+                          val json = JSONObject(response)
+                          val inlineData = json.getJSONArray("candidates")
+                              .getJSONObject(0)
+                              .getJSONObject("content")
+                              .getJSONArray("parts")
+                              .getJSONObject(0)
+                              .getJSONObject("inlineData")
+
+                          val base64Pcm = inlineData.getString("data")
+                          val pcmBytes = Base64.decode(base64Pcm, Base64.DEFAULT)
+                          lastPcmBytes = pcmBytes
+                          playPcmAudio(pcmBytes)
+                          return
+                      }
+                  } catch (_: Exception) {
+                  }
+
+                  // Fallback if TTS quota is reached
+                  runOnUiThread {
+                      fallbackTts?.language = if (isSyrian) Locale("ar") else Locale("uz")
+                      fallbackTts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "baro_tts")
+                  }
+              }
+
+              private fun playPcmAudio(pcmBytes: ByteArray) {
+                  stopCurrentAudio()
+                  val sampleRate = 24000
+                  val minBuf = AudioTrack.getMinBufferSize(
+                      sampleRate,
+                      AudioFormat.CHANNEL_OUT_MONO,
+                      AudioFormat.ENCODING_PCM_16BIT
+                  )
+                  val track = AudioTrack(
+                      AudioManager.STREAM_MUSIC,
+                      sampleRate,
+                      AudioFormat.CHANNEL_OUT_MONO,
+                      AudioFormat.ENCODING_PCM_16BIT,
+                      maxOf(minBuf * 2, 16384),
+                      AudioTrack.MODE_STREAM
+                  )
+                  activeAudioTrack = track
+                  track.play()
+                  track.write(pcmBytes, 0, pcmBytes.size)
+                  track.stop()
+                  track.release()
+                  activeAudioTrack = null
+              }
+
+              private fun stopCurrentAudio() {
+                  try {
+                      activeAudioTrack?.stop()
+                      activeAudioTrack?.release()
+                  } catch (_: Exception) {
+                  }
+                  activeAudioTrack = null
+              }
+
+              private fun replayLastAudio() {
+                  val bytes = lastPcmBytes
+                  if (bytes != null) {
+                      executor.execute { playPcmAudio(bytes) }
+                  } else if (lastTranslatedText.isNotBlank()) {
+                      executor.execute {
+                          generateAndPlayNaturalVoice(getApiKey(), lastTranslatedText, lastWasSyrian)
+                      }
+                  }
+              }
+
+              private fun getApiKey(): String {
+                  return getSharedPreferences("baro_trans_prefs", Context.MODE_PRIVATE)
+                      .getString("gemini_api_key", "") ?: ""
+              }
+
+              private fun showApiKeyDialog() {
+                  val prefs = getSharedPreferences("baro_trans_prefs", Context.MODE_PRIVATE)
+                  val container = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(dp(20), dp(12), dp(20), dp(4))
+                  }
+
+                  val info = TextView(this).apply {
+                      text = "Gemini Live tabiiy ovozi va Suriya shevasi ishlashi uchun bepul Gemini API kalitini kiriting (pastdagi 'Bepul kalit olish' tugmasini bosib 10 soniyada olish mumkin):"
+                      setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                      setPadding(0, 0, 0, dp(10))
+                  }
+
+                  val input = EditText(this).apply {
+                      hint = "AIzaSy..."
+                      setText(getApiKey())
+                      SingleLine = true
+                  }
+
+                  container.addView(info)
+                  container.addView(input)
+
+                  AlertDialog.Builder(this)
+                      .setTitle("🔑 Gemini Live API Kaliti")
+                      .setView(container)
+                      .setPositiveButton("Saqlash") { _, _ ->
+                          prefs.edit().putString("gemini_api_key", input.text.toString().trim()).apply()
+                          Toast.makeText(this, "Kalit saqlandi!", Toast.LENGTH_SHORT).show()
+                      }
+                      .setNeutralButton("Bepul kalit olish") { _, _ ->
+                          val browserIntent = Intent(
+                              Intent.ACTION_VIEW,
+                              Uri.parse("[https://aistudio.google.com/apikey](https://aistudio.google.com/apikey)")
+                          )
+                          startActivity(browserIntent)
+                      }
+                      .setNegativeButton("Yopish", null)
+                      .show()
+              }
+
+              private var EditText.SingleLine: Boolean
+                  get() = isSingleLine
+                  set(value) {
+                      isSingleLine = value
+                  }
+
+              private fun roundedBg(hexColor: String, radiusDp: Int): GradientDrawable {
+                  return GradientDrawable().apply {
+                      setColor(Color.parseColor(hexColor))
+                      cornerRadius = dp(radiusDp).toFloat()
+                  }
+              }
+
+              private fun dp(value: Int): Int {
+                  return TypedValue.applyDimension(
+                      TypedValue.COMPLEX_UNIT_DIP,
+                      value.toFloat(),
+                      resources.displayMetrics
+                  ).toInt()
+              }
+          }
+          EOF
+
+      - name: Build APK with Gradle
+        run: |
+          gradle assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk BARO_TARJIMON.apk
+
+      - name: Upload BARO_TARJIMON.apk as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BARO-TARJIMON-APK
+          path: BARO_TARJIMON.apk
+
+      - name: Publish APK to Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: "BARO TARJIMON v1.0.${{ github.run_number }}"
+          files: BARO_TARJIMON.apk
